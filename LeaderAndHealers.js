@@ -60,14 +60,10 @@ var isFriendly = (entity) => {
 };
 
 var updateVariables = () => {
-    if (!leader) {
-        leader = get_player(friendsNames[0]);
-    }
+    leader = get_player(friendsNames[0]);
 
     for (var i = 0; i < friends.length; i++) {
-        if (!friends[i]) {
-            friends[i] = get_player(friendsNames[i]);
-        }
+        friends[i] = get_player(friendsNames[i]);
     }
 };
 
@@ -260,7 +256,6 @@ var getLeaderPathLength = () => {
 };
 
 var updateLeaderPath = () => {
-    window.leaderPath = leaderPath;
     var currentLeaderPosition = [leader.real_x, leader.real_y];
     if (leaderPath.length === 0) {
         leaderPath.push(currentLeaderPosition);

@@ -3,11 +3,40 @@ var assumedItemCost = 10000;
 var weaponArmorUpgradeItemName = 'scroll0';
 var weaponArmorUpgradeItemCost = 1000;
 
-var desiredLevel = 5;
+var desiredLevel = 7;
 var minimumAllowedGoldAmount = 20000;
 
 var lastItemUpgradeIndex = -1;
+var lastItemUpgradeLevel = null;
 var lastItemUpgradeName = null;
+
+// {phelmet: {1: 2}}
+var debugItemNameToAttemptCountArray = JSON.parse(localStorage.getItem('debugItemNameToAttemptCountArray')) || {};
+var debugItemNameToFailCountArray = JSON.parse(localStorage.getItem('debugItemNameToFailCountArray')) || {};
+
+var debugLogFail = (name, level) => {
+    if (!debugItemNameToFailCountArray[name]) {
+        debugItemNameToFailCountArray[name] = {};
+    }
+
+    if (!debugItemNameToFailCountArray[name].hasOwnProperty(level)) {
+        debugItemNameToFailCountArray[name][level] = 0;
+    }
+
+    debugItemNameToFailCountArray[name][level]++;
+};
+
+var debugLogAttempt = (name, level) => {
+    if (!debugItemNameToAttemptCountArray[name]) {
+        debugItemNameToAttemptCountArray[name] = {};
+    }
+
+    if (!debugItemNameToAttemptCountArray[name].hasOwnProperty(level)) {
+        debugItemNameToAttemptCountArray[name][level] = 0;
+    }
+
+    debugItemNameToAttemptCountArray[name][level]++;
+};
 
 var getScrollIndex = () => {
     for (var i = 0; i < character.items.length; i++) {
@@ -34,7 +63,7 @@ var upgradeOnce = () => {
         }
 
         if (itemsToUpgrade[item.name]) {
-            if (item.level < 5) {
+            if (item.level < desiredLevel) {
                 itemIndex = i;
                 break;
             }
@@ -44,6 +73,7 @@ var upgradeOnce = () => {
     if (lastItemUpgradeIndex >= 0) {
         if (!character.items[lastItemUpgradeIndex]) {
             set_message('Last upgrade failed.');
+            debugLogFail(lastItemUpgradeName, lastItemUpgradeLevel);
 
             if (character.gold - assumedItemCost >= minimumAllowedGoldAmount) {
                 buy(lastItemUpgradeName, 1);
@@ -56,8 +86,10 @@ var upgradeOnce = () => {
     lastItemUpgradeIndex = itemIndex;
     if (character.items[lastItemUpgradeIndex]) {
         lastItemUpgradeName = character.items[lastItemUpgradeIndex].name;
+        lastItemUpgradeLevel = character.items[itemIndex].level;
     } else {
         lastItemUpgradeName = null;
+        lastItemUpgradeLevel = null;
     }
 
     if (itemIndex >= 0) {
@@ -75,7 +107,8 @@ var upgradeOnce = () => {
 
         if (scrollIndex >= 0) {
             set_message('Upgrading item ' + character.items[itemIndex].name + '.');
-            var result = upgrade(itemIndex, scrollIndex);
+            debugLogAttempt(lastItemUpgradeName, character.items[itemIndex].level);
+            upgrade(itemIndex, scrollIndex);
         }
     }
 };
@@ -125,4 +158,23 @@ var getAllItemsOnCharacter = () => {
 
 setInterval(function() {
     upgradeOnce();
+
+    localStorage.setItem('debugItemNameToAttemptCountArray', JSON.stringify(debugItemNameToAttemptCountArray));
+    localStorage.setItem('debugItemNameToFailCountArray', JSON.stringify(debugItemNameToFailCountArray));
+
+    var itemNames = Object.keys(debugItemNameToFailCountArray);
+    for (var i = 0; i < itemNames.length; i++) {
+        var name = itemNames[i];
+
+        var attemptKeys = Object.keys(debugItemNameToFailCountArray[name]);
+        for (var a = 0; a < attemptKeys.length; a++) {
+            var attemptKey = attemptKeys[a];
+
+            var failCount = debugItemNameToFailCountArray[name][attemptKey];
+            var attemptCount = debugItemNameToAttemptCountArray[name][attemptKey];
+            var percentChance = Math.round((attemptCount - failCount) / attemptCount * 10000) / 100;
+
+            console.log('Item ' + name + '. Level ' + attemptKey + '. Has a ' + percentChance + '% chance to succeed. Tried ' + attemptCount + ' times.');
+        }
+    }
 }, 250);

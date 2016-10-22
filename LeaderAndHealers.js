@@ -24,6 +24,7 @@ for (var i = 0; i < friendsNames.length; i++) {
 }
 var amLeader = myPosition === 0;
 var className = character.skin.substring(1, character.skin.length);
+var previousTarget = null;
 
 var getMissingHealth = (entity) => {
     return entity.max_hp - entity.hp;
@@ -42,7 +43,7 @@ var getManaPercent = (entity) => {
 };
 
 var isAlive = (entity) => {
-    return entity.hp > 0;
+    return entity ? !entity.dead : false;
 };
 
 var isFriendly = (entity) => {
@@ -59,12 +60,45 @@ var isFriendly = (entity) => {
     return false;
 };
 
-var updateVariables = () => {
-    leader = get_player(friendsNames[0]);
+var getTarget = () => {
+    if (!isAlive(previousTarget)) {
+        previousTarget = null;
+    }
 
+    return previousTarget;
+};
+
+var setTarget = (target) => {
+    previousTarget = target;
+};
+
+var updateVariables = () => {
     for (var i = 0; i < friends.length; i++) {
         friends[i] = get_player(friendsNames[i]);
     }
+
+    leader = friends[0];
+};
+
+var setPlayersTarget = (player, target) => {
+    localStorage.setItem(player.id + '.target.id', target ? target.id : null);
+};
+
+var getPlayersTarget = (player) => {
+    var targetID = localStorage.getItem(player.id + '.target.id');
+
+    for (var id in parent.entities) {
+        if (!parent.entities.hasOwnProperty(id)) {
+            continue;
+        }
+
+        var currentTarget = parent.entities[id];
+        if (currentTarget.id == targetID) {
+            return currentTarget;
+        }
+    }
+
+    return null;
 };
 
 var healFriendsIfNecessary = () => {
@@ -72,19 +106,26 @@ var healFriendsIfNecessary = () => {
         return false;
     }
 
+    var mostMissingHealth = 0;
+    var mostMissingHealthFriend = null;
+
     for (var i = 0; i < friendsNames.length; i++) {
-        var friendName = friendsNames[i];
         var friend = friends[i];
         if (!friend) {
             continue;
         }
         var missingHealth = getMissingHealth(friend);
 
-        if (missingHealth >= 80 && isAlive(friend) && can_attack(friend)) {
-            heal(friend);
-            set_message('Healing ' + friendName);
-            return true;
+        if (missingHealth >= 80 && missingHealth > mostMissingHealth && isAlive(friend) && can_attack(friend)) {
+            mostMissingHealth = missingHealth;
+            mostMissingHealthFriend = friend;
         }
+    }
+
+    if (mostMissingHealthFriend !== null) {
+        heal(mostMissingHealthFriend);
+        set_message('Healing ' + mostMissingHealthFriend.name);
+        return true;
     }
 
     return false;
@@ -95,7 +136,7 @@ var usePotionsIfNecessary = () => {
     var manaPercent = getManaPercent(character);
 
     if (healthPercent < 0.5 || manaPercent < 0.5) {
-        set_message('Using Potions');
+        // set_message('Using Potions');
         use_hp_or_mp();
     }
 };
@@ -186,7 +227,8 @@ var validTarget = (target, limits) => {
         (target.type != 'monster') ||
         (limits.max_attack && target.attack > limits.max_attack) ||
         (limits.min_xp && target.xp < limits.min_xp) ||
-        (target.hp == 0)
+        (!isAlive(target)) ||
+        (isFriendly(target))
     ) {
         return false;
     }
@@ -194,39 +236,56 @@ var validTarget = (target, limits) => {
     return true;
 };
 
+var safeStringify = (object) => {
+    object.transform = null;
+
+    return JSON.stringify(object);
+};
+
 var attackCorrectTarget = () => {
-    if (myPosition === 0 || true) {
-        var target = get_target();
+    if (myPosition === 0) {
+        var target = getTarget();
         if (isFriendly(target)) {
             target = null;
         }
 
         if (!target) {
             target = getNearestMonster({min_xp: 100, max_attack: 180});
-            if (target && in_attack_range(target)) {
-                change_target(target);
-            } else {
-                return;
-            }
         }
 
-        if (in_attack_range(target) && can_attack(target)) {
+        if (target && in_attack_range(target) && can_attack(target)) {
             attack(target);
         }
+
+        setTarget(target);
+        setPlayersTarget(character, target);
     } else {
-        var target = get_target();
+        var target = getPlayersTarget(leader);
+        if (isFriendly(target)) {
+            target = null;
+        }
+
+        // don't attack before the leader attacks
+        if (getMissingHealth(target) === 0) {
+            target = null;
+        }
+
+        if (target && in_attack_range(target) && can_attack(target)) {
+            attack(target);
+        }
+
+        setTarget(target);
+        setPlayersTarget(character, target);
+    }/* else {
+        var target = getTarget();
         if (isFriendly(target)) {
             target = null;
         }
 
         if (!target) {
             target = getNearestMonster({min_xp: 100, max_attack: 180});
-            if (getMissingHealth(target) === 0) {
-                target = null;
-            }
-
             if (target && in_attack_range(target)) {
-                change_target(target);
+                setTarget(target);
             } else {
                 return;
             }
@@ -235,7 +294,9 @@ var attackCorrectTarget = () => {
         if (in_attack_range(target) && can_attack(target)) {
             attack(target);
         }
-    }
+
+        localStorage.setItem(character.id + '.target.id', target === null ? null : target.id);
+    }*/
 };
 
 var getLeaderPathLength = () => {
@@ -330,7 +391,12 @@ setInterval(function(){
     if (!amLeader) {
         updateLeaderPath();
         var desiredPosition = getPositionAlongLeaderPath();
-        move(desiredPosition[0], desiredPosition[1]);
+        var characterPosition = [character.real_x, character.real_y];
+
+        var distanceSquared = sqrDist(desiredPosition, characterPosition);
+        if (distanceSquared > 0.1) {
+            move(desiredPosition[0], desiredPosition[1]);
+        }
     }
 
     usePotionsIfNecessary();
@@ -340,7 +406,7 @@ setInterval(function(){
     if (!healed) {
         attackCorrectTarget();
     }
-}, 1000 / 20);
+}, 1000 / 10);
 
 var sqrDist = (p1, p2) => {
     var dx = p2[0] - p1[0];
